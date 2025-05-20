@@ -1,12 +1,12 @@
-name: Watch for File Change
+name: Watch for Power BI Desktop Updates
 
 on:
   schedule:
-    - cron: '0 * * * *' # Check every hour
+    - cron: '0 */6 * * *'  # Runs every 6 hours
   workflow_dispatch:
 
 jobs:
-  check-file:
+  detect-change:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
@@ -15,34 +15,35 @@ jobs:
           repository: microsoftdocs/powerbi-docs
           ref: main
 
-      - name: Compare file hash
+      - name: Check for file change
         id: check
         run: |
-          curl -O https://raw.githubusercontent.com/<your-username>/powerbi-docs/main/.filehash
-          sha256sum powerbi-docs/fundamentals/desktop-latest-update.md > newhash
-          if ! cmp -s newhash .filehash; then
+          FILE="powerbi-docs/fundamentals/desktop-latest-update.md"
+          HASH_FILE=".filehash"
+          mkdir -p state
+          if [ ! -f "state/$HASH_FILE" ]; then echo "" > "state/$HASH_FILE"; fi
+          sha256sum $FILE > newhash
+          if ! cmp -s newhash "state/$HASH_FILE"; then
             echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Send Email
+      - name: Create GitHub Issue
         if: steps.check.outputs.changed == 'true'
-        uses: dawidd6/action-send-mail@v3
+        uses: peter-evans/create-issue-from-file@v4
         with:
-          server_address: smtp.yourprovider.com
-          server_port: 465
-          username: ${{ secrets.EMAIL_USER }}
-          password: ${{ secrets.EMAIL_PASS }}
-          subject: Power BI Desktop Updated!
-          to: your-email@example.com
-          from: GitHub Bot <your-email@example.com>
-          body: The desktop-latest-update.md file has changed
+          title: "Power BI Desktop Updated!"
+          content: |
+            The Power BI Desktop update file has changed!
 
-      - name: Update hash
+            [View commit history](https://github.com/MicrosoftDocs/powerbi-docs/commits/main/powerbi-docs/fundamentals/desktop-latest-update.md)
+
+          labels: update
+          assignees: ${{ github.actor }}
+
+      - name: Save hash
         if: steps.check.outputs.changed == 'true'
         run: |
-          mv newhash .filehash
-          git config --global user.email "action@github.com"
-          git config --global user.name "GitHub Action"
-          git add .filehash
-          git commit -m "Update file hash"
-          git push
+          mkdir -p state
+          mv newhash state/.filehash
